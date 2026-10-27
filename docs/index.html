@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buscador de oportunidades</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14171c;--mut:#5c6673;--line:#e3e7ec;--ok:#0b7a43;--okbg:#e3f5ea;--bad:#b3261e;--badbg:#fdeae8;--warn:#8a5a00;--warnbg:#fff4d6;--acc:#2456d6}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#171b21;--ink:#e8ebef;--mut:#98a2b0;--line:#272d36;--ok:#5ad08b;--okbg:#12301f;--bad:#ff8a80;--badbg:#3a1815;--warn:#f2c35b;--warnbg:#3a2e0e;--acc:#7ea2ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:20px 24px 8px;max-width:1280px;margin:auto}
+h1{margin:0 0 4px;font-size:22px}
+.sub{color:var(--mut);font-size:13px}
+main{max-width:1280px;margin:auto;padding:8px 24px 40px}
+.mk{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+.pill{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:13px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:2}
+button.f{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 12px;border-radius:999px;cursor:pointer;font:inherit;font-size:13px}
+button.f.on{background:var(--acc);border-color:var(--acc);color:#fff}
+input[type=search]{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 12px;border-radius:8px;font:inherit;font-size:13px;min-width:160px}
+.tbl{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:auto}
+table{border-collapse:collapse;width:100%;min-width:900px}
+th,td{padding:8px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+th{position:sticky;top:0;background:var(--card);cursor:pointer;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;user-select:none}
+th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+tr:hover td{background:var(--bg)}
+a{color:var(--acc);text-decoration:none;font-weight:600}
+.tag{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px}
+.up{background:var(--okbg);color:var(--ok)}.dn{background:var(--badbg);color:var(--bad)}.mx{background:var(--warnbg);color:var(--warn)}
+.pos{color:var(--ok)}.neg{color:var(--bad)}
+.note{background:var(--warnbg);color:var(--warn);border-radius:10px;padding:10px 14px;font-size:13px;margin:12px 0}
+.cnt{color:var(--mut);font-size:13px;margin-left:auto}
+@media (max-width:640px){header,main{padding-left:14px;padding-right:14px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Buscador de oportunidades</h1>
+  <div class="sub" id="act">Cargando…</div>
+  <div class="mk" id="mk"></div>
+</header>
+<main>
+  <div class="note">Es una lista para mirar, no una señal de compra. En las pruebas con datos pasados, comprar con RSI ≤ 30 apenas mejoró a comprar un día cualquiera, y abrir cortos solo porque el RSI fuera ≥ 70 perdió dinero. Mira siempre el gráfico y usa un stop.</div>
+  <div class="bar" id="bar">
+    <button class="f on" data-f="todos">Todos</button>
+    <button class="f" data-f="sobrev">Sobrevendidos (RSI ≤ 30)</button>
+    <button class="f" data-f="sobrev_up">Sobrevendidos en tendencia alcista</button>
+    <button class="f" data-f="estirados">Estirados (RSI ≥ 70)</button>
+    <button class="f" data-f="alcista">Solo tendencia alcista</button>
+    <button class="f" data-f="vol">Volumen alto (≥ 1,5×)</button>
+    <button class="f" data-t="cripto">Cripto</button>
+    <button class="f" data-t="accion">Acciones</button>
+    <input type="search" id="q" placeholder="Buscar ticker…">
+    <span class="cnt" id="cnt"></span>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr id="head"></tr></thead>
+    <tbody id="body"></tbody>
+  </table></div>
+</main>
+<script>
+const COLS=[["t","Ticker"],["tipo","Tipo"],["precio","Precio"],["cambio_dia","Hoy %"],["rsi","RSI (cierre)"],["rsi_ahora","RSI (ahora)"],["tendencia","Tendencia"],["ret90","90 días %"],["dist_max20","Vs máx. 20d %"],["vol_rel","Volumen ×"],["atr_pct","Volatilidad %"],["stop","Stop orient."],["stop_pct","Stop %"]];
+let DATA=[],MK={},filt="todos",tipo=null,sortK="rsi",sortD=1,q="";
+const fmt=(x)=>{x=+x;const a=Math.abs(x);return a>=1000?x.toLocaleString("es-ES",{maximumFractionDigits:2}):a>=10?x.toFixed(2):a>=1?x.toFixed(3):a>=0.1?x.toFixed(4):x.toFixed(6)};
+const pc=(x,col)=>{const r=Math.round(x*10)/10;return `<span class="${col&&r!==0?(r>0?'pos':'neg'):''}">${r>0?'+':''}${r.toFixed(1)}%</span>`};
+const tend=(t)=>`<span class="tag ${t==='alcista'?'up':t==='bajista'?'dn':'mx'}">${t}</span>`;
+function pass(a){
+  if(tipo&&a.tipo!==tipo)return false;
+  if(q&&!a.t.toLowerCase().includes(q))return false;
+  if(filt==="sobrev")return a.rsi<=30;
+  if(filt==="sobrev_up")return a.rsi<=30&&a.tendencia==="alcista";
+  if(filt==="estirados")return a.rsi>=70;
+  if(filt==="alcista")return a.tendencia==="alcista";
+  if(filt==="vol")return a.vol_rel>=1.5;
+  return true;
+}
+function render(){
+  const rows=DATA.filter(pass).sort((a,b)=>{const x=a[sortK],y=b[sortK];return (typeof x==="string"?x.localeCompare(y):x-y)*sortD});
+  document.getElementById("cnt").textContent=rows.length+" de "+DATA.length;
+  document.getElementById("body").innerHTML=rows.map(a=>`<tr>
+   <td><a href="https://finance.yahoo.com/quote/${encodeURIComponent(a.yahoo)}" target="_blank" rel="noopener">${a.t}</a></td><td>${a.tipo==='cripto'?'Cripto':'Acción'}</td>
+   <td>${fmt(a.precio)}</td><td>${pc(a.cambio_dia,1)}</td>
+   <td><b class="${a.rsi<=30?'pos':a.rsi>=70?'neg':''}">${a.rsi.toFixed(0)}</b></td><td>${a.rsi_ahora.toFixed(0)}</td>
+   <td>${tend(a.tendencia)}</td><td>${pc(a.ret90,1)}</td><td>${pc(a.dist_max20,1)}</td>
+   <td>${a.vol_rel.toFixed(1)}×</td><td>${a.atr_pct.toFixed(1)}%</td><td>${fmt(a.stop)}</td><td>${a.stop_pct.toFixed(1)}%</td></tr>`).join("");
+}
+document.getElementById("head").innerHTML=COLS.map(([k,l])=>`<th data-k="${k}">${l}</th>`).join("");
+document.getElementById("head").onclick=e=>{const k=e.target.dataset.k;if(!k)return;sortD=(sortK===k)?-sortD:1;sortK=k;render()};
+document.getElementById("bar").onclick=e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.f){filt=b.dataset.f;document.querySelectorAll("[data-f]").forEach(x=>x.classList.toggle("on",x===b))}
+  if(b.dataset.t){tipo=(tipo===b.dataset.t)?null:b.dataset.t;document.querySelectorAll("[data-t]").forEach(x=>x.classList.toggle("on",x.dataset.t===tipo))}
+  render()};
+document.getElementById("q").oninput=e=>{q=e.target.value.trim().toLowerCase();render()};
+fetch("datos.json?"+Date.now()).then(r=>r.json()).then(d=>{DATA=d.activos;MK=d.mercado;
+  document.getElementById("act").textContent="Actualizado: "+d.actualizado+" · datos diarios de Yahoo Finance · "+DATA.length+" activos";
+  const m=[["BTC-USD","Bitcoin"],["SPY","S&P 500 (SPY)"]].filter(([k])=>MK[k]).map(([k,n])=>`<div class="pill">${n}: ${tend(MK[k].tendencia)} · RSI ${MK[k].rsi}</div>`).join("");
+  document.getElementById("mk").innerHTML=m;render()}).catch(()=>{document.getElementById("act").textContent="No se pudieron cargar los datos todavía. Lanza el workflow “Buscador” una vez."});
+</script>
+</body>
+</html>
