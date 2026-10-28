@@ -41,14 +41,14 @@ a{color:var(--acc);text-decoration:none;font-weight:600}
   <div class="mk" id="mk"></div>
 </header>
 <main>
+  <div class="note"><b>Valor estimado:</b> «Objetivo analistas» es la media de lo que prevén los analistas a 12 meses (una opinión, no un hecho). «Valor Graham» es una fórmula clásica simple con beneficios y valor contable (solo sirve para empresas con beneficios). Ninguno es el valor «real» de la empresa: son referencias. Las criptos no tienen valor intrínseco calculable. Entre paréntesis, cuánto se aleja del precio actual.</div>
   <div class="note">Es una lista para mirar, no una señal de compra. En las pruebas con datos pasados, comprar con RSI ≤ 30 apenas mejoró a comprar un día cualquiera, y abrir cortos solo porque el RSI fuera ≥ 70 perdió dinero. Mira siempre el gráfico y usa un stop.</div>
   <div class="bar" id="bar">
-    <button class="f on" data-f="todos">Todos</button>
-    <button class="f" data-f="sobrev">Sobrevendidos (RSI ≤ 30)</button>
-    <button class="f" data-f="sobrev_up">Sobrevendidos en tendencia alcista</button>
-    <button class="f" data-f="estirados">Estirados (RSI ≥ 70)</button>
-    <button class="f" data-f="alcista">Solo tendencia alcista</button>
-    <button class="f" data-f="vol">Volumen alto (≥ 1,5×)</button>
+    <button class="f on" data-f="todos">Todas</button>
+    <button class="f" data-f="sobrev">Sobrevendidas (RSI ≤ 30)</button>
+    <button class="f" data-f="estirados">Sobrecompradas (RSI ≥ 70)</button>
+    <button class="f" data-f="sobrev_up">Sobrevendidas en tendencia alcista</button>
+    <button class="f" data-f="barata">Por debajo de su valor estimado</button>
     <button class="f" data-t="cripto">Cripto</button>
     <button class="f" data-t="accion">Acciones</button>
     <input type="search" id="q" placeholder="Buscar ticker…">
@@ -60,19 +60,27 @@ a{color:var(--acc);text-decoration:none;font-weight:600}
   </table></div>
 </main>
 <script>
-const COLS=[["t","Ticker"],["tipo","Tipo"],["precio","Precio"],["cambio_dia","Hoy %"],["rsi","RSI (cierre)"],["rsi_ahora","RSI (ahora)"],["tendencia","Tendencia"],["ret90","90 días %"],["dist_max20","Vs máx. 20d %"],["vol_rel","Volumen ×"],["atr_pct","Volatilidad %"],["stop","Stop orient."],["stop_pct","Stop %"]];
+const COLS=[["t","Ticker"],["tipo","Tipo"],["precio","Precio"],["cambio_dia","Hoy %"],["rsi","RSI (cierre)"],["rsi_ahora","RSI (ahora)"],["tendencia","Tendencia"],["ret90","90 días %"],["vol_rel","Volumen ×"],["objetivo","Objetivo analistas"],["graham","Valor Graham"],["veredicto","Valoración"],["stop","Stop orient."],["stop_pct","Stop %"]];
 let DATA=[],MK={},filt="todos",tipo=null,sortK="rsi",sortD=1,q="";
 const fmt=(x)=>{x=+x;const a=Math.abs(x);return a>=1000?x.toLocaleString("es-ES",{maximumFractionDigits:2}):a>=10?x.toFixed(2):a>=1?x.toFixed(3):a>=0.1?x.toFixed(4):x.toFixed(6)};
 const pc=(x,col)=>{const r=Math.round(x*10)/10;return `<span class="${col&&r!==0?(r>0?'pos':'neg'):''}">${r>0?'+':''}${r.toFixed(1)}%</span>`};
 const tend=(t)=>`<span class="tag ${t==='alcista'?'up':t==='bajista'?'dn':'mx'}">${t}</span>`;
+const val=(v,p)=>v?`${fmt(v)} <span class="${v>=p?'pos':'neg'}" style="font-size:12px">(${v>=p?'+':''}${((v/p-1)*100).toFixed(0)}%)</span>`:'<span class="sub">–</span>';
+function verd(a){
+  if(a.tipo==="cripto"){a.veredicto="n/a";return '<span class="sub" title="Una cripto no tiene beneficios ni activos que permitan calcular un valor intrínseco">n/a (cripto)</span>'}
+  const v=[a.objetivo,a.graham].filter(x=>x), n=v.filter(x=>x>a.precio).length;
+  a.veredicto=!v.length?"Sin datos":v.length===2?(n===2?"Por debajo de ambos":n===0?"Por encima de ambos":"Mixto"):(n===1?"Por debajo de uno":"Por encima de uno");
+  const cl=a.veredicto.startsWith("Por debajo")?"up":a.veredicto.startsWith("Por encima")?"dn":"mx";
+  return `<span class="tag ${cl}">${a.veredicto}</span>`;
+}
 function pass(a){
   if(tipo&&a.tipo!==tipo)return false;
   if(q&&!a.t.toLowerCase().includes(q))return false;
-  if(filt==="sobrev")return a.rsi<=30;
-  if(filt==="sobrev_up")return a.rsi<=30&&a.tendencia==="alcista";
-  if(filt==="estirados")return a.rsi>=70;
+  if(filt==="sobrev")return a.estado==="sobrevendida";
+  if(filt==="sobrev_up")return a.estado==="sobrevendida"&&a.tendencia==="alcista";
+  if(filt==="estirados")return a.estado==="sobrecomprada";
   if(filt==="alcista")return a.tendencia==="alcista";
-  if(filt==="vol")return a.vol_rel>=1.5;
+  if(filt==="barata")return a.veredicto.startsWith("Por debajo");
   return true;
 }
 function render(){
@@ -82,8 +90,8 @@ function render(){
    <td><a href="https://finance.yahoo.com/quote/${encodeURIComponent(a.yahoo)}" target="_blank" rel="noopener">${a.t}</a></td><td>${a.tipo==='cripto'?'Cripto':'Acción'}</td>
    <td>${fmt(a.precio)}</td><td>${pc(a.cambio_dia,1)}</td>
    <td><b class="${a.rsi<=30?'pos':a.rsi>=70?'neg':''}">${a.rsi.toFixed(0)}</b></td><td>${a.rsi_ahora.toFixed(0)}</td>
-   <td>${tend(a.tendencia)}</td><td>${pc(a.ret90,1)}</td><td>${pc(a.dist_max20,1)}</td>
-   <td>${a.vol_rel.toFixed(1)}×</td><td>${a.atr_pct.toFixed(1)}%</td><td>${fmt(a.stop)}</td><td>${a.stop_pct.toFixed(1)}%</td></tr>`).join("");
+   <td>${tend(a.tendencia)}</td><td>${pc(a.ret90,1)}</td>
+   <td>${a.vol_rel.toFixed(1)}×</td><td>${val(a.objetivo,a.precio)}</td><td>${val(a.graham,a.precio)}</td><td>${verd(a)}</td><td>${fmt(a.stop)}</td><td>${a.stop_pct.toFixed(1)}%</td></tr>`).join("");
 }
 document.getElementById("head").innerHTML=COLS.map(([k,l])=>`<th data-k="${k}">${l}</th>`).join("");
 document.getElementById("head").onclick=e=>{const k=e.target.dataset.k;if(!k)return;sortD=(sortK===k)?-sortD:1;sortK=k;render()};
@@ -92,10 +100,10 @@ document.getElementById("bar").onclick=e=>{const b=e.target.closest("button");if
   if(b.dataset.t){tipo=(tipo===b.dataset.t)?null:b.dataset.t;document.querySelectorAll("[data-t]").forEach(x=>x.classList.toggle("on",x.dataset.t===tipo))}
   render()};
 document.getElementById("q").oninput=e=>{q=e.target.value.trim().toLowerCase();render()};
-fetch("datos.json?"+Date.now()).then(r=>r.json()).then(d=>{DATA=d.activos;MK=d.mercado;
-  document.getElementById("act").textContent="Actualizado: "+d.actualizado+" · datos diarios de Yahoo Finance · "+DATA.length+" activos";
+fetch("datos.json?"+Date.now()).then(r=>r.json()).then(d=>{DATA=d.activos;DATA.forEach(verd);MK=d.mercado;
+  document.getElementById("act").textContent="Actualizado: "+d.actualizado+" · Yahoo Finance · "+DATA.length+" en sobreventa/sobrecompra y precio < "+d.precio_max+" $ (de "+d.total_analizados+" analizados)";
   const m=[["BTC-USD","Bitcoin"],["SPY","S&P 500 (SPY)"]].filter(([k])=>MK[k]).map(([k,n])=>`<div class="pill">${n}: ${tend(MK[k].tendencia)} · RSI ${MK[k].rsi}</div>`).join("");
-  document.getElementById("mk").innerHTML=m;render()}).catch(()=>{document.getElementById("act").textContent="No se pudieron cargar los datos todavía. Lanza el workflow “Buscador” una vez."});
+  document.getElementById("mk").innerHTML=m;render()}).catch((e)=>{console.error(e);document.getElementById("act").textContent="No se pudieron cargar los datos todavía. Lanza el workflow “Buscador” una vez."});
 </script>
 </body>
 </html>

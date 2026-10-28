@@ -11,6 +11,8 @@ import numpy as np, pandas as pd, requests
 OUT = os.environ.get("OUT", "docs/datos.json")
 MIN_DOLARES_ACCION = 5e6      # se ignoran las acciones con menos de 5 M$ de volumen diario medio
 STOP_ATR = 2.5
+PRECIO_MAX = 200.0            # solo activos con precio inferior a esto (dolares)
+RSI_BAJO, RSI_ALTO = 30, 70   # sobrevendida / sobrecomprada
 
 CRYPTO = ["BTC-USD","ETH-USD","BNB-USD","SOL-USD","XRP-USD","ADA-USD","DOGE-USD","AVAX-USD","TRX-USD","LINK-USD",
   "DOT-USD","LTC-USD","NEAR-USD","ATOM-USD","XLM-USD","BCH-USD","ETC-USD","HBAR-USD","ALGO-USD","VET-USD","FIL-USD",
@@ -30,6 +32,21 @@ def rsi_w(c, n=14):
     return 100 - 100 / (1 + up / dn.replace(0, np.nan))
 def atr_w(h, l, c, n=14):
     pc = c.shift(1); return pd.concat([h - l, (h - pc).abs(), (l - pc).abs()], axis=1).max(axis=1).ewm(alpha=1/n, adjust=False).mean()
+
+def fundamentales(yahoo):
+    """Valor 'intrinseco' orientativo de una accion: objetivo medio de analistas y numero de Graham."""
+    import yfinance as yf
+    info = None
+    for _ in range(2):
+        try: info = yf.Ticker(yahoo).info; break
+        except Exception: time.sleep(2)
+    if not info: return {}
+    eps, bv = info.get("trailingEps"), info.get("bookValue")
+    graham = float((22.5 * eps * bv) ** 0.5) if (eps and bv and eps > 0 and bv > 0) else None
+    tgt = info.get("targetMeanPrice")
+    return dict(objetivo=float(tgt) if tgt else None, n_analistas=info.get("numberOfAnalystOpinions"), graham=graham,
+                per=info.get("trailingPE"), per_futuro=info.get("forwardPE"), recomendacion=info.get("recommendationKey"),
+                eps=eps, valor_libro=bv, nombre_largo=info.get("shortName"), sector=info.get("sector"))
 
 def lista_sp500():
     try:
@@ -86,11 +103,25 @@ def main():
         r["t"] = nombre(t); r["yahoo"] = t; r["tipo"] = tipo; activos.append(r)
         if t in ("BTC-USD", "SPY"): mercado[t] = dict(tendencia=r["tendencia"], rsi=round(r["rsi"], 1), precio=r["precio"])
     if not activos: print("✗ sin datos"); sys.exit(1)
+    # solo se muestran las sobrevendidas / sobrecompradas con precio menor que PRECIO_MAX
+    sel = []
+    for a in activos:
+        if a["precio"] >= PRECIO_MAX: continue
+        r = min(a["rsi"], a["rsi_ahora"]) if (a["rsi"] <= RSI_BAJO or a["rsi_ahora"] <= RSI_BAJO) else max(a["rsi"], a["rsi_ahora"])
+        if r <= RSI_BAJO: a["estado"] = "sobrevendida"
+        elif r >= RSI_ALTO: a["estado"] = "sobrecomprada"
+        else: continue
+        sel.append(a)
+    print(f"  {len(sel)} activos en sobreventa/sobrecompra y por debajo de {PRECIO_MAX:.0f} $")
+    for a in sel:
+        if a["tipo"] == "accion":
+            a.update({k: v for k, v in fundamentales(a["yahoo"]).items() if v is not None}); time.sleep(0.3)
+    activos = sel
     os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
     with open(OUT, "w") as f:
-        json.dump(dict(actualizado=ahora.strftime("%Y-%m-%d %H:%M UTC"), mercado=mercado,
+        json.dump(dict(actualizado=ahora.strftime("%Y-%m-%d %H:%M UTC"), mercado=mercado, total_analizados=len(datos), precio_max=PRECIO_MAX,
                        activos=sorted(activos, key=lambda a: a["rsi"])), f, ensure_ascii=False, separators=(",", ":"))
-    print(f"✓ {len(activos)} activos escritos en {OUT}")
+    print(f"✓ {len(activos)} activos escritos en {OUT} (de {len(datos)} analizados)")
 
 if __name__ == "__main__":
     main()
